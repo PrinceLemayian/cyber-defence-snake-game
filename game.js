@@ -33,6 +33,14 @@ const state = {
   cardTimer: null,
 };
 
+let CURRICULUM = [];
+fetch("lessons.json")
+  .then((r) => r.json())
+  .then((data) => {
+    CURRICULUM = data;
+  })
+  .catch((err) => console.warn("Could not load lessons.json:", err));
+
 function spawnFood() {
   let position;
 
@@ -208,6 +216,63 @@ function draw() {
   if (coordinatesElement) {
     coordinatesElement.textContent = `${head.x},${head.y}`;
   }
+}
+
+function spawnThreatPair() {
+  if (!Array.isArray(CURRICULUM) || CURRICULUM.length === 0) {
+    return;
+  }
+
+  const maxIndex = CURRICULUM.length;
+  const lesson = CURRICULUM[Math.floor(Math.random() * maxIndex)];
+  if (!lesson || !lesson.threat || !lesson.defense) {
+    return;
+  }
+
+  const isOccupied = (x, y) => {
+    const onSnake = state.snake.some(
+      (segment) => segment.x === x && segment.y === y,
+    );
+    const onFood = state.food && state.food.x === x && state.food.y === y;
+    const onDefense =
+      state.defense && state.defense.x === x && state.defense.y === y;
+    return onSnake || onFood || onDefense;
+  };
+
+  let threatPosition;
+  while (true) {
+    const x = Math.floor(Math.random() * COLS);
+    const y = Math.floor(Math.random() * ROWS);
+    if (!isOccupied(x, y)) {
+      threatPosition = { x, y };
+      break;
+    }
+  }
+
+  let defensePosition;
+  while (true) {
+    const x = Math.floor(Math.random() * COLS);
+    const y = Math.floor(Math.random() * ROWS);
+    const collision =
+      isOccupied(x, y) ||
+      (threatPosition && threatPosition.x === x && threatPosition.y === y);
+    if (!collision) {
+      defensePosition = { x, y };
+      break;
+    }
+  }
+
+  state.activeCurriculum = lesson;
+  state.threat = {
+    x: threatPosition.x,
+    y: threatPosition.y,
+    name: lesson.threat.name,
+  };
+  state.defense = {
+    x: defensePosition.x,
+    y: defensePosition.y,
+    name: lesson.defense.name,
+  };
 }
 
 function move() {
