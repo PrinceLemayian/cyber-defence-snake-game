@@ -210,5 +210,283 @@ function draw() {
   }
 }
 
+function move() {
+  state.direction = { ...state.nextDirection };
+
+  const newHead = {
+    x: state.snake[0].x + state.direction.x,
+    y: state.snake[0].y + state.direction.y,
+  };
+
+  if (
+    newHead.x < 0 ||
+    newHead.x >= COLS ||
+    newHead.y < 0 ||
+    newHead.y >= ROWS
+  ) {
+    gameOver();
+    return;
+  }
+
+  const collidedWithSelf = state.snake.some(
+    (segment) => segment.x === newHead.x && segment.y === newHead.y,
+  );
+
+  if (collidedWithSelf) {
+    gameOver();
+    return;
+  }
+
+  state.snake.unshift(newHead);
+
+  let ate = false;
+
+  if (state.food && newHead.x === state.food.x && newHead.y === state.food.y) {
+    state.score += 1;
+    state.totalPackets += 1;
+    spawnFood();
+    ate = true;
+    addTelemetryLog("DATA PACKET COLLECTED +1", "success");
+    addScoreEntry("Data Packet", 1, "#6b7280");
+  }
+
+  if (
+    state.defense &&
+    newHead.x === state.defense.x &&
+    newHead.y === state.defense.y
+  ) {
+    state.score += 500;
+    state.totalDefenses += 1;
+    ate = true;
+    addTelemetryLog(`NODE SECURED — ${state.defense.name}`, "success");
+    addScoreEntry(`Defense: ${state.defense.name}`, 500, "#00A651");
+    state.defense = null;
+    if (state.threat) {
+      state.threat = null;
+    }
+    if (state.activeCurriculum && typeof showCard === "function") {
+      showCard("defense");
+      return;
+    }
+  }
+
+  if (
+    state.threat &&
+    newHead.x === state.threat.x &&
+    newHead.y === state.threat.y
+  ) {
+    state.score = Math.max(0, state.score - 1000);
+    state.totalThreats += 1;
+    addTelemetryLog(`THREAT DETECTED — ${state.threat.name}`, "danger");
+    addScoreEntry(`Threat: ${state.threat.name}`, -1000, "#E31937");
+    state.threat = null;
+    if (state.defense) {
+      state.defense = null;
+    }
+    if (state.activeCurriculum && typeof showCard === "function") {
+      showCard("threat");
+      return;
+    }
+  }
+
+  if (!ate) {
+    state.snake.pop();
+  }
+
+  if (
+    state.threat === null &&
+    typeof CURRICULUM !== "undefined" &&
+    Array.isArray(CURRICULUM) &&
+    CURRICULUM.length > 0 &&
+    Math.random() < 0.02
+  ) {
+    if (typeof spawnThreatPair === "function") {
+      spawnThreatPair();
+    }
+  }
+
+  draw();
+  updateDashboard();
+}
+
+function startGame() {
+  if (state.status !== "idle" && state.status !== "gameover") {
+    return;
+  }
+
+  state.snake = [
+    { x: 10, y: 10 },
+    { x: 9, y: 10 },
+    { x: 8, y: 10 },
+  ];
+  state.direction = { x: 1, y: 0 };
+  state.nextDirection = { x: 1, y: 0 };
+  state.score = 0;
+  state.status = "playing";
+  state.threat = null;
+  state.defense = null;
+  state.activeCurriculum = null;
+  state.totalThreats = 0;
+  state.totalDefenses = 0;
+  state.totalPackets = 0;
+  state.lessonsCompleted = 0;
+
+  const scoreLog = document.getElementById("score-log");
+  const telemetryLog = document.getElementById("telemetry-log");
+
+  if (scoreLog) {
+    scoreLog.innerHTML = "";
+  }
+  if (telemetryLog) {
+    telemetryLog.innerHTML = "";
+  }
+
+  spawnFood();
+
+  if (state.gameInterval) {
+    clearInterval(state.gameInterval);
+  }
+
+  state.gameInterval = setInterval(move, state.speed);
+
+  if (state.sessionTimer) {
+    clearInterval(state.sessionTimer);
+  }
+
+  state.sessionSeconds = 0;
+
+  const formatSessionTime = (seconds) => {
+    const pad = (value) => String(value).padStart(2, "0");
+    const hrs = pad(Math.floor(seconds / 3600));
+    const mins = pad(Math.floor((seconds % 3600) / 60));
+    const secs = pad(seconds % 60);
+    return `[SESSION: ${hrs}:${mins}:${secs}]`;
+  };
+
+  state.sessionTimer = setInterval(() => {
+    state.sessionSeconds += 1;
+    const timerEl = document.getElementById("session-timer");
+    if (timerEl) {
+      timerEl.textContent = formatSessionTime(state.sessionSeconds);
+    }
+  }, 1000);
+
+  addTelemetryLog("SESSION INITIALIZED", "success");
+  updateDashboard();
+  draw();
+}
+
+function gameOver() {
+  state.status = "gameover";
+
+  if (state.gameInterval) {
+    clearInterval(state.gameInterval);
+    state.gameInterval = null;
+  }
+
+  if (state.sessionTimer) {
+    clearInterval(state.sessionTimer);
+    state.sessionTimer = null;
+  }
+
+  addTelemetryLog("SESSION TERMINATED", "danger");
+  updateDashboard();
+  draw();
+}
+
+function updateDashboard() {
+  const scoreValue = document.getElementById("score-value");
+  const progressFill = document.getElementById("progress-fill");
+  const rankPercent = document.getElementById("rank-percent");
+  const threatsCount = document.getElementById("threats-count");
+  const defenseCount = document.getElementById("defense-count");
+  const packetsCount = document.getElementById("packets-count");
+
+  if (scoreValue) {
+    scoreValue.textContent = String(state.score);
+  }
+
+  const progressWidth = Math.min(Math.max((state.score / 50) * 100, 0), 100);
+  if (progressFill) {
+    progressFill.style.width = `${progressWidth}%`;
+  }
+
+  if (rankPercent) {
+    rankPercent.textContent = `${Math.min(Math.max(state.score, 0), 100)}%`;
+  }
+
+  if (threatsCount) {
+    threatsCount.textContent = String(state.totalThreats);
+  }
+  if (defenseCount) {
+    defenseCount.textContent = String(state.totalDefenses);
+  }
+  if (packetsCount) {
+    packetsCount.textContent = String(state.totalPackets);
+  }
+}
+
+function addTelemetryLog(message, type) {
+  const logContainer = document.getElementById("telemetry-log");
+  if (!logContainer) {
+    return;
+  }
+
+  const pad = (value) => String(value).padStart(2, "0");
+  const now = new Date();
+  const timeLabel = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
+    now.getSeconds(),
+  )}`;
+
+  const entry = document.createElement("div");
+  entry.className = "log-entry";
+
+  const timeSpan = document.createElement("span");
+  timeSpan.className = "log-time";
+  timeSpan.textContent = timeLabel;
+
+  const messageSpan = document.createElement("span");
+  messageSpan.className = type === "danger" ? "log-danger" : "log-success";
+  messageSpan.textContent = message;
+
+  entry.appendChild(timeSpan);
+  entry.appendChild(document.createTextNode(" "));
+  entry.appendChild(messageSpan);
+
+  logContainer.insertBefore(entry, logContainer.firstChild);
+}
+
+function addScoreEntry(label, points, color) {
+  const scoreLog = document.getElementById("score-log");
+  if (!scoreLog) {
+    return;
+  }
+
+  if (
+    scoreLog.children.length === 1 &&
+    scoreLog.firstChild.textContent.includes("No recent activity")
+  ) {
+    scoreLog.innerHTML = "";
+  }
+
+  const entry = document.createElement("div");
+  entry.className = "score-entry";
+
+  const labelSpan = document.createElement("span");
+  labelSpan.className = "event-label";
+  labelSpan.style.color = color;
+  labelSpan.textContent = label;
+
+  const pointsSpan = document.createElement("span");
+  pointsSpan.className = "event-score";
+  pointsSpan.style.color = color;
+  pointsSpan.textContent = `${points >= 0 ? "+" : ""}${points}`;
+
+  entry.appendChild(labelSpan);
+  entry.appendChild(pointsSpan);
+
+  scoreLog.insertBefore(entry, scoreLog.firstChild);
+}
+
 spawnFood();
 draw();
